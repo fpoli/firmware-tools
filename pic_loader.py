@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-  Copyright 2013 Grégory Soutadé
+  Original work Copyright 2013 Grégory Soutadé
+  Modified work Copyright 2016 Federico Poli
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,12 +21,10 @@
 
 import sys
 import serial
-import time
 import os
 import binascii
-import time
 from optparse import OptionParser
-import traceback
+
 
 class HexReader():
 
@@ -33,16 +32,16 @@ class HexReader():
     RECORD_EOF = 1
     RECORD_EXTENDED_SEGMENT_ADDRESS = 2
     RECORD_START_SEGMENT_ADDRESS = 3
-    RECORD_LINEAR_SEGMENT_ADDRESS = 4
+    RECORD_EXTENDED_LINEAR_ADDRESS = 4
     RECORD_START_LINEAR_ADDRESS = 5
     RECORD_MAX = 5
 
     def __init__(self, filename):
         if not os.path.exists(filename):
-            raise AssertionError('%s doesn\'t exists' % filename)
+            raise AssertionError("%s doesn't exists" % filename)
 
-        f = open(filename, 'r')
-        
+        f = open(filename, "r")
+
         self.valid_lines = 0
         self.code = []
         self.code_pos = 0
@@ -52,60 +51,63 @@ class HexReader():
             line_number += 1
             crc = 0
 
-            if len(line) == 0 or line.startswith('#'): continue
+            if len(line) == 0 or line.startswith("#"): continue
 
             self.valid_lines += 1
 
             # Start marker
-            if not line.startswith(':'):
-                raise AssertionError('Invalid file : line %d does not starts with \':\'' % line_number)
+            if not line.startswith(":"):
+                raise AssertionError("Invalid file : line %d does not starts with \":\"" % line_number)
             line = line[1:]
+
+            # Remove ending whitespaces
+            line = line.rstrip()
 
             # Byte count
             try:
-                byte_count = int('0x' + line[0:2], 16)
+                byte_count = int("0x" + line[0:2], 16)
             except:
-                raise AssertionError('Invalid file : line %d, invalid byte count' % line_number)
+                raise AssertionError("Invalid file : line %d, invalid byte count" % line_number)
             line = line[2:]
 
             if len(line)/2 != int(byte_count+2+1+1): # Data + address + record type + CRC
-                raise AssertionError('Invalid file : line %d, invalid byte count' % line_number)
+                raise AssertionError("Invalid file : line %d, invalid byte count" % line_number)
             crc += byte_count
 
             # Address
             try:
-                address = int('0x' + line[0:4], 16)
+                address = int("0x" + line[0:4], 16)
             except:
-                raise AssertionError('Invalid file : line %d, invalid address' % line_number)
-            crc += int('0x' + line[0:2], 16)
-            crc += int('0x' + line[2:4], 16)
+                raise AssertionError("Invalid file : line %d, invalid address" % line_number)
+            crc += int("0x" + line[0:2], 16)
+            crc += int("0x" + line[2:4], 16)
             line = line[4:]
 
             # Record type
             record_type = int(line[0:2])
 
             if record_type > self.RECORD_MAX:
-                raise AssertionError('Invalid file : line %d, invalid record type' % line_number)
-            
+                raise AssertionError("Invalid file : line %d, invalid record type" % line_number)
+
             line = line[2:]
             crc += record_type
 
 
             # CRC
             for i in range(0, byte_count):
-                crc += int('0x' + line[i*2:(i*2)+2], 16)
+                crc += int("0x" + line[i*2:(i*2)+2], 16)
 
             crc = int(crc) & 0xFF
             crc ^= 0xFF
             crc += 1
             crc &= 0xFF
 
-            if crc != int('0x' + line[byte_count*2:byte_count*2+2], 16):
-                raise AssertionError('Invalid file : line %d, invalid crc %d' % (line_number, crc))
+            if crc != int("0x" + line[byte_count*2:byte_count*2+2], 16):
+                raise AssertionError("Invalid file : line %d, invalid crc %d" % (line_number, crc))
 
             self.code.append((address, record_type, binascii.unhexlify(line[0:byte_count*2])))
 
-            if record_type == self.RECORD_EOF: 
+            if record_type == self.RECORD_EOF:
                 break
 
     def get_code(self):
@@ -116,17 +118,24 @@ class HexReader():
 
         return (None, None, None)
 
-            
 
 class PICBoard():
 
-    def __init__(self, hexfile, port='/dev/ttyUSB0', baudrate=115200, minicom=False):
+    def __init__(self, hexfile, port="/dev/ttyUSB0", baudrate=115200):
 
         # Connect to serial
         # Parity is the most important !!
-        self.ser = serial.Serial(port, baudrate, bytesize=serial.EIGHTBITS, parity=serial.PARITY_EVEN, \
-                                stopbits=serial.STOPBITS_ONE, xonxoff=False, rtscts=False, \
-                                timeout=1, writeTimeout=1)
+        self.ser = serial.Serial(
+            port,
+            baudrate,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,  # PARITY_EVEN
+            stopbits=serial.STOPBITS_ONE,
+            xonxoff=False,
+            rtscts=False,
+            timeout=1,
+            writeTimeout=1
+        )
 
         self.ser.setDTR(True)
         self.ser.setRTS(True)
@@ -137,23 +146,19 @@ class PICBoard():
         self.line = 0
 
         # Read file
-        if not hexfile is None:
+        if hexfile is not None:
             self.reader = HexReader(hexfile)
 
-        # Upload file
-            print 'File is ok' 
+            # Upload file
+            print "File is ok"
 
-            self.resp = ('y', 'x')
+            self.resp = ("y", "x")
             self.resp_pos = 0
 
             self.connected = False
             self.connect()
 
             self.send_code()
-
-        # Go in minicom
-        if minicom:
-            self.minicom()
 
         # Close
         self.close(0)
@@ -172,16 +177,16 @@ class PICBoard():
         # print binascii.hexlify(byte)
 
         while True:
-            c= self.ser.read(1)
-            if c != 'g': break
+            c = self.ser.read(1)
+            if c != "g": break
 
         if c != self.resp[self.resp_pos]:
             if not self.connected:
-                print 'Synchronisation lost ' + c
+                print "Synchronisation lost " + c
             else:
-                print 'synchronisation breaked @ line %d' % (self.line)
+                print "Synchronisation breaked @ line %d" % (self.line)
             self.close(-1)
-            
+
         self.resp_pos = (self.resp_pos+1)%2
 
 
@@ -189,34 +194,65 @@ class PICBoard():
         # Wait for start marker
         c = self.ser.read(1)
 
-        if c != 'g':
-            print 'Not connected'
+        if c != "g":
+            print "Not connected"
             self.close(-1)
 
         self.connected = True
 
-        self._send_byte('r')
+        self._send_byte("r")
         self.ser.flushInput()
 
 
     def send_code(self):
-        print 'Sending code'
+        print "Sending code"
 
         self.line = 0
+        high_address = 0
         last_address = 0
-        nop = binascii.unhexlify('ff3f')
-        pad = binascii.unhexlify('ff')
+
+        # What value with wich to fill unused program memory?
+        # There is no "Preferred Way", it depends what you want to do:
+        #  a. Leave it as it is, in a non-erased state 0xFFFFFF - Compiler
+        #     default
+        #  b. Fill it with RESET. If code is executed it resets and starts over
+        #  c. Fill it with NOP. Will run through NOP's until an invalid
+        #     address or another instruction reached
+        # Note that code may be stored as Words with low byte first.
+        filler = binascii.unhexlify("ffff")
 
         while True:
-            (address, record_type, code) = self.reader.get_code()
-            if address == None: break # EOF
-            self.line = self.line + 1
-            if record_type != HexReader.RECORD_DATA: break
-            # Pad with nop until current address
+            (low_address, record_type, code) = self.reader.get_code()
+
+            if record_type == HexReader.RECORD_EOF or low_address == None:
+                print "End of hex file reached"
+                break  # EOF
+
+            self.line += 1
+
+            if record_type == HexReader.RECORD_EXTENDED_LINEAR_ADDRESS:
+                assert low_address == 0
+                assert len(code) == 2
+                high_address = (ord(code[0]) << 8) + ord(code[1])
+                continue
+            elif record_type != HexReader.RECORD_DATA:
+                print "Unknown record_type {} at line {}: aborting".format(
+                    record_type,
+                    self.line
+                )
+                break
+
+            address = (high_address << 16) + low_address
+
+            if address >= 0x7CC0:
+                print "End of programmable region reached"
+                break
+
+            # Pad with filler until current address
             while last_address != address:
-                self._send_byte(nop[0])
-                self._send_byte(nop[1])
-                last_address += 2
+                last_address += 1
+                filler_pos = last_address % len(filler)
+                self._send_byte(filler[filler_pos])
 
             # Send current data
             while len(code) != 0:
@@ -224,48 +260,32 @@ class PICBoard():
                 code = code[1:]
                 last_address += 1
 
-        while ((last_address % 500) != 0):
-            self._send_byte(pad[0])
+        # Pad with filler until the end of a block of 64 bytes
+        while (last_address == 0  and last_address % 64 != 0):
             last_address = last_address + 1
+            filler_pos = last_address % len(filler)
+            self._send_byte(filler[filler_pos])
 
-        print 'Code successfully sent, you can reboot me'
-
-        
-    def minicom(self):
-        print 'Go into minicom mode'
-        # Go in minicom mode
-        try:
-            while True:
-                c = self.ser.read(1)
-                sys.stdout.write(c)
-                sys.stdout.flush()
-        except:
-            pass
-        self.ser.close()
+        print "Code successfully sent, you can reboot me"
 
 
-if __name__ == '__main__':
-    usage = 'Usage: %prog [options]\n' \
-            '   Upload an HEX file to the Ready for PIC Board'
+if __name__ == "__main__":
+    usage = "Usage: %prog [options]\n" \
+            "   Upload an HEX file to the Ready for PIC Board"
     optparser = OptionParser(usage=usage)
-    optparser.add_option('-f', '--file', dest='file',
-                         help='Input HEX file')
-    optparser.add_option('-p', '--port', dest='port',
-                         help='Port to use (default: /dev/ttyUSB0)',
-                         default='/dev/ttyUSB0')
-    optparser.add_option('-b', '--baudrate', dest='baudrate',
-                         default='115200', type=int,
-                         help='Baudrate (default: 115200)')
-    optparser.add_option('-m', '--minicom', dest='minicom',
-                         action='store_true', default=False,
-                         help='Display board output')
+    optparser.add_option("-f", "--file", dest="file",
+                         help="Input HEX file")
+    optparser.add_option("-p", "--port", dest="port",
+                         help="Port to use (default: /dev/ttyUSB0)",
+                         default="/dev/ttyUSB0")
+    optparser.add_option("-b", "--baudrate", dest="baudrate",
+                         default="115200", type=int,
+                         help="Baudrate (default: 115200)")
 
     (options, args) = optparser.parse_args(sys.argv[1:])
 
-    try:
-        p = PICBoard(options.file, options.port, options.baudrate, options.minicom)
-        
-    except ValueError:
-        pass
-    except Exception, e:
-        print e
+    p = PICBoard(
+        options.file,
+        options.port,
+        options.baudrate
+    )
