@@ -261,7 +261,7 @@ class PICBoard():
                 last_address += 1
 
         # Pad with filler until the end of a block of 64 bytes
-        while (last_address == 0  and last_address % 64 != 0):
+        while (last_address == 0 or last_address % 64 != 0):
             last_address = last_address + 1
             filler_pos = last_address % len(filler)
             self._send_byte(filler[filler_pos])
