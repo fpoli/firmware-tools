@@ -32,7 +32,7 @@ def listen_serial(port, baudrate, detailed=False):
     comm.flushOutput()
 
     try:
-        print "Listening..."
+        print >> sys.stderr, "Listening..."
         while True:
             data = comm.read(1)
             if detailed:
@@ -47,10 +47,10 @@ def listen_serial(port, baudrate, detailed=False):
                 sys.stdout.write(data)
                 sys.stdout.flush()
     except Exception as e:
-        print "/!\ {}".format(e)
+        print >> sys.stderr, "/!\ {}".format(e)
 
     comm.close()
-    print "Closed."
+    print >> sys.stderr, "Closed."
 
 
 def get_arguments():

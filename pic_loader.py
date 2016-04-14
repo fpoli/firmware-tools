@@ -23,11 +23,10 @@ import sys
 import serial
 import os
 import binascii
-from optparse import OptionParser
+import argparse
 
 
 class HexReader():
-
     RECORD_DATA = 0
     RECORD_EOF = 1
     RECORD_EXTENDED_SEGMENT_ADDRESS = 2
@@ -92,7 +91,6 @@ class HexReader():
             line = line[2:]
             crc += record_type
 
-
             # CRC
             for i in range(0, byte_count):
                 crc += int("0x" + line[i*2:(i*2)+2], 16)
@@ -120,11 +118,8 @@ class HexReader():
 
 
 class PICBoard():
-
     def __init__(self, hexfile, port="/dev/ttyUSB0", baudrate=115200):
-
         # Connect to serial
-        # Parity is the most important !!
         self.ser = serial.Serial(
             port,
             baudrate,
@@ -145,12 +140,11 @@ class PICBoard():
 
         self.line = 0
 
-        # Read file
         if hexfile is not None:
+            # Read file
             self.reader = HexReader(hexfile)
 
-            # Upload file
-            print "File is ok"
+            print "HEX file is ok"
 
             self.resp = ("y", "x")
             self.resp_pos = 0
@@ -158,11 +152,10 @@ class PICBoard():
             self.connected = False
             self.connect()
 
+            # Upload file
             self.send_code()
 
-        # Close
         self.close(0)
-
 
     def close(self, val):
         self.ser.setDTR(False)
@@ -170,11 +163,14 @@ class PICBoard():
         self.ser.close()
         sys.exit(val)
 
+    def _send_byte(self, byte, address):
+        if address >= 0x7CC0:
+            raise Exception(
+                "Dangerous exception! "
+                "This script tried to overwrite the bootloader!"
+            )
 
-    def _send_byte(self, byte):
         self.ser.write(byte)
-
-        # print binascii.hexlify(byte)
 
         while True:
             c = self.ser.read(1)
@@ -187,8 +183,7 @@ class PICBoard():
                 print "Synchronisation breaked @ line %d" % (self.line)
             self.close(-1)
 
-        self.resp_pos = (self.resp_pos+1)%2
-
+        self.resp_pos = (self.resp_pos + 1) % 2
 
     def connect(self):
         # Wait for start marker
@@ -200,16 +195,17 @@ class PICBoard():
 
         self.connected = True
 
-        self._send_byte("r")
+        self._send_byte("r", 0)
         self.ser.flushInput()
 
-
     def send_code(self):
-        print "Sending code"
+        print "Sending code..."
 
         self.line = 0
         high_address = 0
-        last_address = 0
+
+        # Address (from 0) of the next byte that is going to be written
+        cursor_address = 0
 
         # What value with wich to fill unused program memory?
         # There is no "Preferred Way", it depends what you want to do:
@@ -225,7 +221,7 @@ class PICBoard():
             (low_address, record_type, code) = self.reader.get_code()
 
             if record_type == HexReader.RECORD_EOF or low_address == None:
-                print "End of hex file reached"
+                print "End of HEX file reached"
                 break  # EOF
 
             self.line += 1
@@ -249,43 +245,53 @@ class PICBoard():
                 break
 
             # Pad with filler until current address
-            while last_address != address:
-                last_address += 1
-                filler_pos = last_address % len(filler)
-                self._send_byte(filler[filler_pos])
+            while cursor_address < address:
+                filler_pos = cursor_address % len(filler)
+                self._send_byte(filler[filler_pos], cursor_address)
+                cursor_address += 1
 
             # Send current data
-            while len(code) != 0:
-                self._send_byte(code[0])
-                code = code[1:]
-                last_address += 1
+            for byte in code:
+                self._send_byte(byte, cursor_address)
+                cursor_address += 1
 
         # Pad with filler until the end of a block of 64 bytes
-        while (last_address == 0 or last_address % 64 != 0):
-            last_address = last_address + 1
-            filler_pos = last_address % len(filler)
-            self._send_byte(filler[filler_pos])
+        while (cursor_address == 0 or cursor_address % 64 != 0):
+            filler_pos = cursor_address % len(filler)
+            self._send_byte(filler[filler_pos], cursor_address)
+            cursor_address += 1
 
-        print "Code successfully sent, you can reboot me"
+        print "Code successfully sent, you can reboot the board"
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description="Upload an HEX file to the Ready for PIC Board"
+    )
+    parser.add_argument(
+        "-f", "--file",
+        help="Input HEX file",
+        required=True
+    )
+    parser.add_argument(
+        "-p", "--port",
+        default="/dev/ttyUSB0",
+        help="Port to use (default: /dev/ttyUSB0)"
+    )
+    parser.add_argument(
+        "-b", "--baudrate",
+        type=int,
+        default=115200,
+        help="Baudrate (default: 115200)"
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    usage = "Usage: %prog [options]\n" \
-            "   Upload an HEX file to the Ready for PIC Board"
-    optparser = OptionParser(usage=usage)
-    optparser.add_option("-f", "--file", dest="file",
-                         help="Input HEX file")
-    optparser.add_option("-p", "--port", dest="port",
-                         help="Port to use (default: /dev/ttyUSB0)",
-                         default="/dev/ttyUSB0")
-    optparser.add_option("-b", "--baudrate", dest="baudrate",
-                         default="115200", type=int,
-                         help="Baudrate (default: 115200)")
+    args = get_args()
 
-    (options, args) = optparser.parse_args(sys.argv[1:])
-
-    p = PICBoard(
-        options.file,
-        options.port,
-        options.baudrate
+    PICBoard(
+        args.file,
+        args.port,
+        args.baudrate
     )

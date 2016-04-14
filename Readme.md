@@ -37,6 +37,20 @@ Open a serial connection and display every incoming byte.
 	./listen_serial.py -h
 
 
+### `plot_stdin.py`
+
+Plot values received from stdin. Multiple values on the same line are treated as different series.
+
+Very useful to plot data received on serial connection with `./listen_serial.py`.
+
+	echo -e "1\n 2\n 3\n 4\n 5\n" | ./plot_stdin.py -n 1 --xlen 10
+	echo -e "1 2 3\n 4 5 6\n" | ./plot_stdin.py -n 3 --xlen 5
+	echo "-1 +2.3485 -.654" | ./plot_stdin.py -n 3 --xlen 5
+	echo "here is 1 and 2 and 3" | ./plot_stdin.py -n 3 --xlen 5
+	./listen_serial.py | ./plot_stdin.py -n 1
+	./plot_stdin.py -h
+
+
 License (GPL v3)
 ----------------
 
